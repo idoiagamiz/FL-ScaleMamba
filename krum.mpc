@@ -1,0 +1,164 @@
+start_timer(0)
+open_channel_with_return(0)
+
+# -- PARAMETROS POR DEFECTO -- 
+# NOTA: Se debe cambiar en funcion del caso de uso concreto
+#   n=7 clientes
+#   f=2 byzantine adversaries
+#   d=5 longitud de w
+
+n=7
+f=2
+d=5
+
+# -- INICIALIZACION --
+# Playeri. Input: vector de parametros local w_i.       Para todo i=1,...,n
+# Player0. Output: vector de parametros global del modelo
+# Guarda todos los parametros locales en una matriz
+# Cada fila pertenece a un cliente i y cada columna a un valor del vector w_i
+# NOTA: Se debe cambiar en funcion del numero de clientes n. Por defecto n=7
+
+parametros=sfix.Matrix(n,d)
+@for_range(d)
+def range_features(j):
+    parametros[0][j] = sfix(sint.get_private_input_from(1))
+    parametros[1][j] = sfix(sint.get_private_input_from(2))
+    parametros[2][j] = sfix(sint.get_private_input_from(3))
+    parametros[3][j] = sfix(sint.get_private_input_from(4))
+    parametros[4][j] = sfix(sint.get_private_input_from(5))
+    parametros[5][j] = sfix(sint.get_private_input_from(6))
+    parametros[6][j] = sfix(sint.get_private_input_from(7))
+
+
+# -- FUNCION distancia --
+# Calcula la distancia entre dos vectores
+
+def distancia(matriz,i,j,d):
+    distancia=MemValue(sfix(0))
+    @for_range(d)
+    def range_body(k):
+        distancia.iadd((matriz[i][k]-matriz[j][k])**2)
+    return distancia
+
+# -- FUNCION sort_indices --
+# Input: lista "array"
+# Output: dos listas
+#       sorted: lista con los numeros de "array" ordenados 
+#       indices: lista con los indices que ordenan el vector "array" 
+
+def sort_indices(array,n):
+    indices = sfix.Array(n)
+    sorted = sfix.Array(n)
+    minimum=MemFix(array[0])
+    min_index=MemFix(sfix(0))
+    maximum=MemFix(sfix(0))
+    @for_range(n)
+    def range_body(j):
+        @if_e((array[j]<minimum.read()).reveal()==1)
+        def block():
+            minimum.write(array[j])
+            min_index.write(sfix(j))
+        @else_
+        def block():
+            nada=0
+        @if_e((array[j]>maximum.read()).reveal()==1)
+        def block():
+            maximum.write(array[j])
+        @else_
+        def block():
+            nada=0
+    sorted[0]=minimum
+    indices[0]= min_index
+    @for_range(1,n)
+    def range_body(i):
+        limite=sorted[i-1]
+        minimum=MemFix(maximum+1)
+        min_index = MemFix(indices[i-1])
+        @for_range(n)
+        def range_body(j):
+            @if_e((array[j]>limite).reveal()==1)
+            def block():
+                @if_e((array[j]<minimum.read()).reveal()==1)
+                def block():
+                    minimum.write(array[j])
+                    min_index.write(sfix(j))
+                @else_
+                def block():
+                    nada=0
+            @else_
+            def block():
+                nada=0       
+            @if_e((array[j]==limite).reveal()==1)
+            def block():
+                @if_e((sfix(j)>indices[i-1]).reveal()==1)
+                def block():
+                    @if_e((array[j]<minimum.read()).reveal()==1)
+                    def block():
+                        minimum.write(array[j])
+                        min_index.write(sfix(j))
+                    @else_
+                    def block():
+                        nada=0
+                @else_
+                def block():
+                    nada=0
+            @else_
+            def block():
+                nada=0
+   
+        sorted[i] = minimum.read()
+        indices[i] = min_index.read()        
+    return sorted,indices    
+    
+# --CALCULAR VALOR KRUM --
+# Se crea un vector de tamano n para guardar los score
+scores=sfix.Array(n)
+
+#Para cada cliente i, se calcula su score
+@for_range(n)
+def range_features(i):
+    #Primero calcula la distancia a cada w_j
+    #Lo guarda en un vector distancias
+    #Nota: no se debe guardar la distancia a si mismo
+    distancias_i = sfix.Array(n-1) 
+    @for_range(n)
+    def range_features(j):
+        #Se calcula cuando no es a si mismo:
+        c=i!=j
+        if_then(c)
+        ditancias_i[j]=distancia(parametros,i,j,d)
+        else_then()
+        nada=0
+        end_if()
+    #Se ordena el vector distancias_i
+    dist_i_ordenadas=sort_indices(distancias_i,n-1)[0]
+    #Se cogen las primeras n-f-2 y se suman
+    score_i=MemValue(sfix(0))
+    @for_range(n-f-2)
+    def range_body(i):
+        score_i.iadd(dist_i_ordenadas[i])
+    #Se guarda el resultado en el vector scores
+    scores[i]=score_i
+    
+# OPCION 1: Krum
+# Se debe encontrar el cliente con el minimo score y guardar que cliente es
+
+minimum=MemFix(scores[0])
+cliente=sfix(0)
+@for_range(1,n)
+def range_body(i):
+    c=scores[i]<minimum.read()
+    minimum=c.if_else(scores[i],minimum)
+    cliente=c.if_else(i,cliente)
+
+
+# El valor de Krum es w_i*, donde i* se refiere al cliente que minimiza el score.
+# Este valor se utiliza para fijar el vector de parametros global actualizado para la proxima iteracion.
+
+print_ln('\nLos parametros globales actualizados son \n')
+@for_range(d)
+def range_body(j):
+    print_str(' %s',parametros[cliente][j].reveal())
+
+close_channel(0)
+stop_timer(0)
